@@ -7,6 +7,7 @@
 module Control.Monad.Log.Gogol (gogolLogging, textLogEntry, jsonLogEntry, gceInstance, LoggingScopes, HasLoggingScopes) where
 
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.Functor (void)
 import qualified Data.List.NonEmpty as NE (NonEmpty, nonEmpty, toList)
 import Data.Proxy (Proxy(..))
 
@@ -15,7 +16,7 @@ import qualified Data.Aeson as A (FromJSON(..), ToJSON(..), encode)
 -- exceptions
 import Control.Monad.Catch (MonadCatch(..), MonadMask(..))
 -- gogol
-import Network.Google (runGoogle, HasEnv(..), Env, runResourceT, send, upload)
+import Network.Google (runGoogle, HasEnv(..), Env, runResourceT, send, upload, AsError(..), Error(..), trying)
 import Network.Google.Auth.Scope (AllowScopes(..), HasScope')
 import Network.Google.Types (GoogleRequest(..), Scopes)
 -- gogol-core
@@ -34,7 +35,7 @@ import Data.Text (Text, pack, unpack)
 import qualified Data.HashMap.Strict as HM (HashMap, singleton, insert, fromList)
 
 -- | Logging bracket that periodically flushes the logs to Google Cloud Logging (formerly Stackdriver) https://cloud.google.com/logging/docs
-gogolLogging :: ( HasLoggingScopes s, HasEnv s genv, MonadIO io, MonadMask io) =>
+gogolLogging :: (HasScope' s LoggingScopes ~ 'True, AllowScopes s, HasEnv s genv, MonadIO io, MonadMask io) =>
                 BatchingOptions
              -> (MonitoredResource -> a -> LogEntry) -- ^ how to produce a log entry e.g. via 'textLogEntry' or 'jsonLogEntry'
              -> genv -- ^ a configuration variable that can provide an 'Env'
@@ -44,8 +45,7 @@ gogolLogging :: ( HasLoggingScopes s, HasEnv s genv, MonadIO io, MonadMask io) =
 gogolLogging opts f genv res = withBatchedHandler opts flush
   where
     flush mq = runResourceT . runGoogle genv $ do
-      _ <- send $ entriesWrite (writeLogEntriesRequest & wlerEntries .~ (map (f res) $ NE.toList mq))
-      pure ()
+      void $ trying _Error $ send $ entriesWrite (writeLogEntriesRequest & wlerEntries .~ (map (f res) $ NE.toList mq))
 
 type HasLoggingScopes s = (HasScope' s LoggingScopes ~ 'True, AllowScopes s)
 
