@@ -1,5 +1,3 @@
 # logging-effect-gogol
 
-[![Build Status](https://travis-ci.org/unfoldml/logging-effect-gogol.png)](https://travis-ci.org/unfoldml/logging-effect-gogol)
-
-TODO Description.
+Google backend for `logging-effect`. Provides a batched logging handler that periodically sends log entries to Stackdriver
