@@ -27,7 +27,7 @@ import Network.Google.Resource.Logging.Entries.Write (EntriesWrite, entriesWrite
 -- lens
 import Control.Lens ((&), (.~), _Just, (%~))
 -- logging-effect
-import Control.Monad.Log (withBatchedHandler, BatchingOptions(..), defaultBatchingOptions, WithSeverity(..), Handler)
+import Control.Monad.Log (withBatchedHandler, BatchingOptions(..), defaultBatchingOptions, WithSeverity(..), Handler, runLoggingT)
 import qualified Control.Monad.Log as L (Severity(..))
 -- text
 import Data.Text (Text, pack, unpack)
@@ -40,7 +40,7 @@ gogolLogging :: (HasScope' s LoggingScopes ~ 'True, AllowScopes s, HasEnv s genv
              -> (MonitoredResource -> a -> LogEntry) -- ^ how to produce a log entry e.g. via 'textLogEntry' or 'jsonLogEntry'
              -> genv -- ^ a configuration variable that can provide an 'Env'
              -> MonitoredResource -- ^ annotate the log entries with the resource producing them, e.g. 'gceInstance'
-             -> (Handler io a -> io b) -- ^ User program runs in here
+             -> (Handler io a -> io b) -- ^ User program runs in here, via e.g. 'runLoggingT' or similar
              -> io b
 gogolLogging opts f genv res = withBatchedHandler opts flush
   where
@@ -53,10 +53,11 @@ type LoggingScopes = '["https://www.googleapis.com/auth/cloud-platform",
                      "https://www.googleapis.com/auth/logging.admin",
                      "https://www.googleapis.com/auth/logging.write"]
 
+-- | Construct log entries made of objects that can be JSON-encoded (via their @aeson@ 'A.ToJSON' instances)
 jsonLogEntry :: A.ToJSON a =>
                 Text -- ^ logging entry key
              -> MonitoredResource
-             -> WithSeverity a
+             -> WithSeverity a -- ^ log payload, with its severity annotation
              -> LogEntry
 jsonLogEntry k r (WithSeverity ls t) = jsonLogEntry_ r (mapSeverity $ Just ls) k t
 
@@ -71,8 +72,10 @@ jsonLogEntry_ r s k v = logEntry &
                        leResource .~ Just r &
                        leJSONPayload . _Just . lejpAddtional .~ HM.singleton k (A.toJSON v)
 
+-- | Construct log entries made of UTF-8 plain text
 textLogEntry :: MonitoredResource
-             -> WithSeverity Text -> LogEntry
+             -> WithSeverity Text -- ^ log payload, with its severity annotation
+             -> LogEntry
 textLogEntry r (WithSeverity ls t) = textLogEntry_ r (mapSeverity $ Just ls) t
 
 textLogEntry_ :: MonitoredResource
@@ -105,4 +108,4 @@ gceInstance :: Text -- ^ project ID
             -> MonitoredResource
 gceInstance prid insid z = monitoredResource &
   mrType . _Just .~ "gce_instance" &
-  mrLabels . _Just . mrlAddtional .~  (HM.fromList [("projectId", prid), ("instanceId", insid), ("zone", z)])
+  mrLabels . _Just . mrlAddtional .~  (HM.fromList [("project_id", prid), ("instance_id", insid), ("zone", z)])
